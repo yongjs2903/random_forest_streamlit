@@ -78,31 +78,42 @@ with col3:
 
 # --- PREDICTION LOGIC ---
 if st.button("Predict Productivity"):
-    # 1. Prepare a base dataframe with zeros for all columns
-    input_df = pd.DataFrame(0, index=[0], columns=feature_cols)
+    # 1. Prepare a base dataframe with 0.0 (Floats) instead of 0 (Integers)
+    # This prevents the "Invalid value for dtype int64" error
+    input_df = pd.DataFrame(0.0, index=[0], columns=feature_cols)
     
     # 2. Fill in numerical/static values
-    input_df.loc[0, 'targeted_productivity'] = targeted_productivity
-    input_df.loc[0, 'smv'] = smv
-    input_df.loc[0, 'wip'] = wip
-    input_df.loc[0, 'over_time'] = over_time
-    input_df.loc[0, 'incentive'] = incentive
-    input_df.loc[0, 'idle_time'] = idle_time
-    input_df.loc[0, 'idle_men'] = idle_men
-    input_df.loc[0, 'no_of_style_change'] = no_of_style_change
-    input_df.loc[0, 'no_of_workers'] = no_of_workers
-    input_df.loc[0, 'has_idle_time'] = 1 if idle_time > 0 else 0
-    input_df.loc[0, 'has_idle_men'] = 1 if idle_men > 0 else 0
-    input_df.loc[0, 'has_style_change'] = 1 if no_of_style_change > 0 else 0
+    input_df.at[0, 'targeted_productivity'] = float(targeted_productivity)
+    input_df.at[0, 'smv'] = float(smv)
+    input_df.at[0, 'wip'] = float(wip)
+    input_df.at[0, 'over_time'] = float(over_time)
+    input_df.at[0, 'incentive'] = float(incentive)
+    input_df.at[0, 'idle_time'] = float(idle_time)
+    input_df.at[0, 'idle_men'] = float(idle_men)
+    input_df.at[0, 'no_of_style_change'] = float(no_of_style_change)
+    input_df.at[0, 'no_of_workers'] = float(no_of_workers)
+    
+    # Binary flags
+    input_df.at[0, 'has_idle_time'] = 1.0 if idle_time > 0 else 0.0
+    input_df.at[0, 'has_idle_men'] = 1.0 if idle_men > 0 else 0.0
+    input_df.at[0, 'has_style_change'] = 1.0 if no_of_style_change > 0 else 0.0
 
-    # 3. Handle One-Hot Encoding (Set the selected categories to 1)
-    # Note: drop_first=True means some columns (like day_Monday or Quarter1) might not exist
-    for col in [f"day_{day}", f"quarter_{quarter}", f"department_{department}", f"team_{team}"]:
+    # 3. Handle One-Hot Encoding
+    # We use .at[0, col] for faster and safer assignment
+    cat_selections = [
+        f"day_{day}", 
+        f"quarter_{quarter}", 
+        f"department_{department}", 
+        f"team_{team}"
+    ]
+    
+    for col in cat_selections:
         if col in feature_cols:
-            input_df.loc[0, col] = 1
+            input_df.at[0, col] = 1.0
 
     # 4. Scale numerical columns
-    input_df[num_cols] = scaler.transform(input_df[num_cols])
+    # Ensure the input is treated as float for the scaler
+    input_df[num_cols] = scaler.transform(input_df[num_cols].astype(float))
 
     # 5. Predict
     prediction = model.predict(input_df)[0]
@@ -111,10 +122,9 @@ if st.button("Predict Productivity"):
     st.divider()
     st.subheader(f"Predicted Actual Productivity: **{prediction:.4f}**")
     
-    # Visual comparison with target
     if prediction >= targeted_productivity:
         st.success(f"Goal Met! The predicted productivity is **{((prediction - targeted_productivity)/targeted_productivity)*100:.1f}%** above target.")
     else:
         st.warning(f"Goal Not Met. The predicted productivity is **{((targeted_productivity - prediction)/targeted_productivity)*100:.1f}%** below target.")
     
-    st.progress(min(float(prediction), 1.0))
+    st.progress(min(max(float(prediction), 0.0), 1.0))
