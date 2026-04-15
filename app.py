@@ -2,26 +2,27 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
 
 # --- APP CONFIGURATION ---
-st.set_page_config(page_title="Garment Productivity Predictor", layout="wide")
+st.set_page_config(page_title="Garment Productivity Multi-Model Predictor", layout="wide")
 
 @st.cache_resource
-def load_data_and_model():
+def load_data_and_models():
     # 1. Load Data
-    # Ensure this filename matches exactly what you upload to GitHub
     df = pd.read_csv('garments_worker_productivity.csv')
     
-    # 2. Preprocessing (Matching your original logic)
+    # 2. Preprocessing
     df['wip'] = df['wip'].fillna(0)
     df['has_idle_time'] = (df['idle_time'] > 0).astype(int)
     df['has_idle_men'] = (df['idle_men'] > 0).astype(int)
     df['has_style_change'] = (df['no_of_style_change'] > 0).astype(int)
-    df.drop(['date'], axis=1, inplace=True)
+    if 'date' in df.columns:
+        df.drop(['date'], axis=1, inplace=True)
     
     # 3. One-Hot Encoding
-    # We use pd.get_dummies just like your training code
     df_encoded = pd.get_dummies(df, columns=['day', 'quarter', 'department', 'team'], drop_first=True)
     
     X = df_encoded.drop('actual_productivity', axis=1)
@@ -31,25 +32,35 @@ def load_data_and_model():
     scaler = StandardScaler()
     num_cols = ['no_of_workers','targeted_productivity', 'smv', 'wip','over_time', 'incentive']
     
-    # We fit the scaler on the numeric columns
     X_scaled = X.copy()
     X_scaled[num_cols] = scaler.fit_transform(X[num_cols])
     
-    # 5. Train Model
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X_scaled, y)
+    # 5. Train Models
+    models = {
+        "Random Forest": RandomForestRegressor(n_estimators=100, random_state=42),
+        "Linear Regression": LinearRegression(),
+        "SVR (Support Vector Regression)": SVR(kernel='rbf', C=1, gamma=0.1)
+    }
     
-    return model, scaler, X.columns, num_cols
+    for name in models:
+        models[name].fit(X_scaled, y)
+    
+    return models, scaler, X.columns, num_cols
 
 # Load resources
-model, scaler, feature_cols, num_cols = load_data_and_model()
+models_dict, scaler, feature_cols, num_cols = load_data_and_models()
 
 # --- USER INTERFACE ---
 st.title("👕 Garment Worker Productivity Predictor")
-st.markdown("""
-This tool uses a **Random Forest Regressor** to predict the actual productivity of garment workers 
-based on daily metrics and targets.
-""")
+st.markdown("Compare predictions across different Machine Learning models.")
+
+# Model Selection Sidebar
+st.sidebar.header("Model Settings")
+selected_model_name = st.sidebar.selectbox(
+    "Select Model to Use",
+    list(models_dict.keys())
+)
+selected_model = models_dict[selected_model_name]
 
 # Create three columns for input
 col1, col2, col3 = st.columns(3)
@@ -77,9 +88,8 @@ with col3:
     no_of_style_change = st.number_input("Style Changes", 0, 10, 0)
 
 # --- PREDICTION LOGIC ---
-if st.button("Predict Productivity"):
-    # 1. Prepare a base dataframe with 0.0 (Floats) instead of 0 (Integers)
-    # This prevents the "Invalid value for dtype int64" error
+if st.button(f"Predict with {selected_model_name}"):
+    # 1. Prepare a base dataframe with 0.0 floats
     input_df = pd.DataFrame(0.0, index=[0], columns=feature_cols)
     
     # 2. Fill in numerical/static values
@@ -93,38 +103,33 @@ if st.button("Predict Productivity"):
     input_df.at[0, 'no_of_style_change'] = float(no_of_style_change)
     input_df.at[0, 'no_of_workers'] = float(no_of_workers)
     
-    # Binary flags
+    # Binary flags logic
     input_df.at[0, 'has_idle_time'] = 1.0 if idle_time > 0 else 0.0
     input_df.at[0, 'has_idle_men'] = 1.0 if idle_men > 0 else 0.0
     input_df.at[0, 'has_style_change'] = 1.0 if no_of_style_change > 0 else 0.0
 
     # 3. Handle One-Hot Encoding
-    # We use .at[0, col] for faster and safer assignment
-    cat_selections = [
-        f"day_{day}", 
-        f"quarter_{quarter}", 
-        f"department_{department}", 
-        f"team_{team}"
-    ]
-    
+    cat_selections = [f"day_{day}", f"quarter_{quarter}", f"department_{department}", f"team_{team}"]
     for col in cat_selections:
         if col in feature_cols:
             input_df.at[0, col] = 1.0
 
     # 4. Scale numerical columns
-    # Ensure the input is treated as float for the scaler
     input_df[num_cols] = scaler.transform(input_df[num_cols].astype(float))
 
-    # 5. Predict
-    prediction = model.predict(input_df)[0]
+    # 5. Predict using the selected model
+    prediction = selected_model.predict(input_df)[0]
 
     # --- Display Results ---
     st.divider()
+    st.markdown(f"### Result using: **{selected_model_name}**")
     st.subheader(f"Predicted Actual Productivity: **{prediction:.4f}**")
     
+    # Logic for display
     if prediction >= targeted_productivity:
-        st.success(f"Goal Met! The predicted productivity is **{((prediction - targeted_productivity)/targeted_productivity)*100:.1f}%** above target.")
+        st.success(f"Target of {targeted_productivity} is ACHIEVED.")
     else:
-        st.warning(f"Goal Not Met. The predicted productivity is **{((targeted_productivity - prediction)/targeted_productivity)*100:.1f}%** below target.")
+        st.warning(f"Target of {targeted_productivity} is NOT ACHIEVED.")
     
+    # Progress bar (clamped between 0 and 1)
     st.progress(min(max(float(prediction), 0.0), 1.0))
