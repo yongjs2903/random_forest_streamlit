@@ -8,7 +8,7 @@ from sklearn.linear_model import Ridge
 from sklearn.svm import SVR
 
 # --- APP CONFIGURATION ---
-st.set_page_config(page_title="Tuned Productivity Predictor", layout="wide")
+st.set_page_config(page_title="Productivity Predictor", layout="wide")
 
 @st.cache_resource
 def load_train_and_tune_models():
@@ -74,9 +74,9 @@ def load_train_and_tune_models():
     best_svr = grid_svr.best_estimator_
 
     models = {
-        "Tuned Random Forest": best_rf,
-        "Tuned Ridge Regression": best_ridge,
-        "Tuned SVR": best_svr
+        "Random Forest": best_rf,
+        "Ridge Regression": best_ridge,
+        "SVR": best_svr
     }
     
     return models, scaler, X.columns, num_cols
@@ -86,9 +86,9 @@ with st.spinner("Tuning models with GridSearchCV... Please wait (this only happe
     models_dict, scaler, feature_cols, num_cols = load_train_and_tune_models()
 
 # --- USER INTERFACE ---
-st.title("🧵 Garment Productivity: Tuned Predictor")
+st.title("🧵 Garment Productivity: Predictor")
 st.sidebar.header("Settings")
-selected_model_name = st.sidebar.selectbox("Choose a Tuned Model", list(models_dict.keys()))
+selected_model_name = st.sidebar.selectbox("Choose a Model", list(models_dict.keys()))
 selected_model = models_dict[selected_model_name]
 
 # Create Layout
