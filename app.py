@@ -75,7 +75,7 @@ def load_train_and_tune_models():
 
     models = {
         "Random Forest": best_rf,
-        "Ridge Regression": best_ridge,
+        "Linear Regression": best_ridge,
         "SVR": best_svr
     }
     
