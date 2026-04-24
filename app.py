@@ -23,7 +23,7 @@ def load_train_and_tune_models():
         st.error("Dataset not found. Please ensure 'garments_worker_productivity.csv' is in the directory.")
         st.stop()
 
-    # 1. Clean WIP & String inconsistencies (fixes the double "finishing" issue)
+    # 1. Clean WIP & String inconsistencies
     garments['wip'] = garments['wip'].fillna(0)
     garments['department'] = garments['department'].str.strip()
 
@@ -37,8 +37,8 @@ def load_train_and_tune_models():
     garments['overtime_per_worker'] = garments['over_time'] / (garments['no_of_workers'] + 1)
     garments['wip_per_worker'] = garments['wip'] / (garments['no_of_workers'] + 1)
 
-    # 4. Drop columns
-    garments.drop(['date', 'idle_time', 'idle_men', 'team', 'day'], axis=1, inplace=True)
+    # 4. Drop columns (Added targeted_productivity to the drop list as per your instruction)
+    garments.drop(['date', 'idle_time', 'idle_men', 'team', 'day', 'targeted_productivity'], axis=1, inplace=True)
 
     # 5. One-Hot Encoding
     garments = pd.get_dummies(garments, columns=['quarter', 'department'], drop_first=True)
@@ -48,17 +48,17 @@ def load_train_and_tune_models():
     y = garments['actual_productivity']
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 7. Scaling
+    # 7. Scaling (Removed targeted_productivity from num_cols as per your image)
     scaler = StandardScaler()
     num_cols =[
-        'targeted_productivity', 'no_of_style_change', 'no_of_workers', 'smv', 'wip', 
+        'no_of_style_change', 'no_of_workers', 'smv', 'wip', 
         'over_time', 'incentive', 'efficiency_ratio', 'overtime_per_worker', 'wip_per_worker'
     ]
     
     X_train_scaled = X_train.copy()
     X_train_scaled[num_cols] = scaler.fit_transform(X_train[num_cols])
 
-    # 8. Train Tuned Ridge Regression (Linear Regression)
+    # 8. Train Tuned Ridge Regression
     param_grid_lr = {'alpha':[0.01, 0.1, 1, 10, 100]}
     grid_lr = GridSearchCV(Ridge(), param_grid_lr, cv=5, scoring='r2')
     grid_lr.fit(X_train_scaled, y_train)
@@ -74,7 +74,7 @@ def load_train_and_tune_models():
     grid_svr.fit(X_train_scaled, y_train)
     best_svr = grid_svr.best_estimator_
 
-    # 10. Train Tuned Random Forest (Trained on UNSCALED data)
+    # 10. Train Tuned Random Forest
     param_grid_rf = {
         'n_estimators':[200, 300],
         'max_depth': [10, 20, None],
@@ -111,11 +111,9 @@ selected_model = st.sidebar.selectbox(
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.subheader("Categorical & Targets")
+    st.subheader("Categorical Data")
     quarter = st.selectbox("Quarter",["Quarter1", "Quarter2", "Quarter3", "Quarter4", "Quarter5"])
-    # Cleaned department list without the trailing space
     department = st.selectbox("Department",["sweing", "finishing"])
-    targeted_productivity = st.slider("Targeted Productivity", min_value=0.10, max_value=1.00, value=0.80, step=0.01)
 
 with col2:
     st.subheader("Time & Workforce")
@@ -136,11 +134,10 @@ with col3:
 
 if st.button(f"Predict with {selected_model}"):
     
-    # 1. Create a DataFrame from User Inputs
+    # 1. Create a DataFrame from User Inputs (Targeted Productivity removed)
     input_data = pd.DataFrame({
         'quarter': [quarter],
         'department': [department],
-        'targeted_productivity': [targeted_productivity],
         'smv': [smv],
         'wip': [wip],
         'over_time': [over_time],
@@ -169,7 +166,7 @@ if st.button(f"Predict with {selected_model}"):
     input_data_scaled = input_data.copy()
     input_data_scaled[num_cols] = scaler.transform(input_data[num_cols])
 
-    # 6. Execute Prediction based on selection
+    # 6. Execute Prediction 
     if selected_model == "Tuned Random Forest":
         prediction = best_rf.predict(input_data)[0]
     elif selected_model == "Tuned SVR":
@@ -182,11 +179,11 @@ if st.button(f"Predict with {selected_model}"):
     st.subheader(f"Results using {selected_model}")
     st.metric(label="Predicted Actual Productivity", value=f"{prediction:.4f}")
     
-    # Adding visual feedback against targeted productivity
-    if prediction >= targeted_productivity:
-        st.success(f"🎯 Target Met: Prediction ({prediction:.2%}) meets or exceeds the target ({targeted_productivity:.2%}).")
+    # Feedback based on standard 0.75 efficiency benchmark
+    if prediction >= 0.75:
+        st.success(f"High Performance: Prediction is {prediction:.2%} efficiency.")
     else:
-        st.error(f"⚠️ Target Missed: Prediction ({prediction:.2%}) falls short of the target ({targeted_productivity:.2%}).")
+        st.warning(f"Below Average Performance: Prediction is {prediction:.2%} efficiency.")
 
     # ==========================================
     # 8. DYNAMIC PRODUCTIVITY SUGGESTIONS
@@ -197,38 +194,26 @@ if st.button(f"Predict with {selected_model}"):
 
     suggestions_given = False
 
-    # Logic 1: Style Change Impact
     if no_of_style_change > 0:
-        st.warning(f"**✂️ Style Change Disruption:** You have {no_of_style_change} style change(s) scheduled. This usually causes an initial drop in productivity due to the learning curve. Ensure operators are thoroughly briefed and materials are pre-arranged to minimize downtime.")
+        st.warning(f"**✂️ Style Change Management:** Scheduled style changes cause a learning curve dip. Ensure pre-allocated materials and thorough briefings are provided to keep momentum.")
         suggestions_given = True
 
-    # Logic 2: Target Unrealistic
-    if prediction < targeted_productivity and (targeted_productivity - prediction) > 0.15:
-        st.error("**📉 Target May Be Unrealistic:** The predicted productivity is significantly lower than your target. Consider revising the target down to a more achievable level to prevent severe demotivation, or allocate additional resources to this line.")
+    if incentive < 30:
+        st.info("**💰 Boost Incentives:** Lower financial incentives are often correlated with slower production speeds. Increasing the bonus pool can directly lift morale and output.")
         suggestions_given = True
 
-    # Logic 3: Incentives
-    if incentive < 50 and prediction < targeted_productivity:
-        st.info("**💰 Increase Financial Incentives:** Your allocated incentive is quite low while your predicted productivity is missing the target. The data shows that financial bonuses strongly motivate garment workers to hit their KPIs.")
-        suggestions_given = True
-
-    # Logic 4: Overtime vs Workers
     if over_time > (no_of_workers * 120): 
-        st.warning("**⏰ Reduce Overtime Fatigue:** The allocated overtime is extremely high for the number of workers. Excessive overtime leads to physical fatigue and a drop in hourly efficiency. Consider shifting the workload to regular hours.")
+        st.error("**⏰ Fatigue Risk:** Excessive overtime per worker leads to physical burnout. If productivity is low, consider reducing overtime and increasing the workforce size to maintain higher hourly efficiency.")
         suggestions_given = True
 
-    # Logic 5: Work In Progress (WIP) Bottlenecks
-    # Reverting log transform locally just to check raw value for suggestion
     raw_wip = np.expm1(input_data['wip'][0]) 
-    if raw_wip > 1000:
-        st.warning("**🚧 Clear Production Bottlenecks (WIP):** A high Work-In-Progress volume indicates severe bottlenecks in your assembly line. Implement line-balancing techniques to ensure a smoother flow.")
+    if raw_wip > 800:
+        st.warning("**🚧 WIP Reduction:** High work-in-progress levels indicate bottlenecks. Consider rebalancing the production line to ensure units move faster from sewing to finishing.")
         suggestions_given = True
 
-    # Logic 6: SMV (Task Complexity)
-    if smv > 30 and prediction < 0.80:
-        st.info("**⚙️ Optimize Complex Tasks:** A high Standard Minute Value (SMV) indicates complex garment styling. Ensure workers are thoroughly trained for this specific style, or consider breaking the operations down into simpler micro-tasks.")
+    if smv > 25 and prediction < 0.80:
+        st.info("**⚙️ Task Simplification:** This garment style has high complexity (SMV). To improve score, consider breaking down complex operations into simpler steps for faster repetition.")
         suggestions_given = True
 
-    # Praise if everything is perfect and target is met
-    if prediction >= targeted_productivity and not suggestions_given:
-        st.success("**✅ Optimal Setup:** Your current operational parameters are well-balanced and you are on track to hit your targets. Maintain current monitoring and foster strong team morale.")
+    if prediction >= 0.80 and not suggestions_given:
+        st.success("**✅ Optimal Setup:** Current parameters are excellent. To push higher, focus on workplace ergonomics and maintaining team synergy.")
