@@ -136,7 +136,7 @@ if st.button(f"Predict with {selected_model}"):
     # 1. Create a DataFrame from User Inputs
     input_data = pd.DataFrame({
         'quarter': [quarter],
-        'department': [department],
+        'department':[department],
         'smv':[smv],
         'wip': [wip],
         'over_time': [over_time],
@@ -165,7 +165,6 @@ if st.button(f"Predict with {selected_model}"):
     input_data_scaled[num_cols] = scaler.transform(input_data[num_cols])
 
     # 6. Execute Prediction based on selection
-    # Note: RF uses unscaled input_data, while LR and SVR use input_data_scaled
     if selected_model == "Tuned Random Forest":
         prediction = best_rf.predict(input_data)[0]
     elif selected_model == "Tuned SVR":
@@ -179,7 +178,50 @@ if st.button(f"Predict with {selected_model}"):
     st.metric(label="Predicted Actual Productivity", value=f"{prediction:.4f}")
     
     # Adding visual feedback
-    if prediction >= 0.80: # Assuming 0.80 is a good baseline
+    if prediction >= 0.80:
         st.success(f"High Performance: Prediction is {prediction:.2%} efficiency.")
     else:
         st.warning(f"Low Performance: Prediction is {prediction:.2%} efficiency.")
+
+    # ==========================================
+    # 8. DYNAMIC PRODUCTIVITY SUGGESTIONS
+    # ==========================================
+    st.markdown("---")
+    st.subheader("💡 Actionable Recommendations")
+    st.markdown("Based on your inputs, here are data-driven suggestions to improve this team's productivity:")
+
+    suggestions_given = False
+
+    # Logic 1: Incentives
+    if incentive < 50:
+        st.info("**💰 Increase Financial Incentives:** Your allocated incentive is quite low. The data shows that appropriate financial bonuses strongly motivate garment workers and are a primary driver for boosting actual productivity.")
+        suggestions_given = True
+
+    # Logic 2: Overtime vs Workers
+    # Assuming standard overtime limit shouldn't drastically exceed 2 hours (120 mins) per worker
+    if over_time > (no_of_workers * 120): 
+        st.error("**⏰ Reduce Overtime Fatigue:** The allocated overtime is extremely high for the number of workers. Excessive overtime leads to physical fatigue, mistakes, and a severe drop in hourly efficiency. Consider hiring temporary workers or shifting the workload to regular hours.")
+        suggestions_given = True
+    elif over_time > 0 and prediction < 0.75:
+        st.warning("**⏰ Monitor Overtime Dependency:** You are logging overtime, but predicted efficiency remains low. This indicates diminishing returns. Investigate if the overtime is actually being utilized effectively.")
+        suggestions_given = True
+
+    # Logic 3: Work In Progress (WIP) Bottlenecks
+    if wip > 1000:
+        st.warning("**🚧 Clear Production Bottlenecks (WIP):** A high Work-In-Progress volume indicates severe bottlenecks in your assembly line. Implement lean manufacturing techniques (like Kanban) to balance the line and ensure a smoother flow from sewing to finishing.")
+        suggestions_given = True
+
+    # Logic 4: SMV (Task Complexity)
+    if smv > 30 and prediction < 0.80:
+        st.info("**⚙️ Optimize Complex Tasks:** A high Standard Minute Value (SMV) indicates complex garment styling. Since productivity is predicted to be lower, ensure workers are thoroughly trained for this specific style, or consider breaking the operations down into simpler, smaller micro-tasks.")
+        suggestions_given = True
+
+    # Fallback/General Advice if efficiency is low but no extreme triggers are hit
+    if prediction < 0.80 and not suggestions_given:
+        st.info("**👥 Team Skill Reallocation:** Consider re-evaluating the skill matrix of this team. Mixing highly skilled senior workers with novices can help lift the team's baseline efficiency.")
+        st.info("**🔧 Proactive Machine Maintenance:** Ensure all sewing and finishing machines are well-maintained before the shift starts to prevent micro-stoppages that quietly eat into production time.")
+        suggestions_given = True
+
+    # Praise if everything is perfect
+    if prediction >= 0.80 and not suggestions_given:
+        st.success("**✅ Optimal Setup:** Your current operational parameters are well-balanced. To push productivity even closer to 1.0, focus on micro-ergonomic improvements at the workstations and fostering strong team morale.")
