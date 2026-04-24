@@ -16,39 +16,36 @@ st.set_page_config(page_title="Garment Productivity Predictor", layout="wide")
 # ==========================================
 @st.cache_resource
 def load_train_and_tune_models():
-    # Load dataset 
     try:
         garments = pd.read_csv('garments_worker_productivity.csv')
     except FileNotFoundError:
-        st.error("Dataset not found. Please ensure 'garments_worker_productivity.csv' is in the directory.")
+        st.error("Dataset not found.")
         st.stop()
 
-    # 1. Clean WIP & String inconsistencies
     garments['wip'] = garments['wip'].fillna(0)
     garments['department'] = garments['department'].str.strip()
 
-    # 2. Log Transformations
+    # Log Transformations
     garments['wip'] = np.log1p(garments['wip'])
     garments['over_time'] = np.log1p(garments['over_time'])
     garments['incentive'] = np.log1p(garments['incentive'])
 
-    # 3. Feature Engineering
+    # Feature Engineering
     garments['efficiency_ratio'] = garments['smv'] / (garments['no_of_workers'] + 1)
     garments['overtime_per_worker'] = garments['over_time'] / (garments['no_of_workers'] + 1)
     garments['wip_per_worker'] = garments['wip'] / (garments['no_of_workers'] + 1)
 
-    # 4. Drop columns (Added targeted_productivity to the drop list as per your instruction)
+    # UPDATED: Drop targeted_productivity from the training features
     garments.drop(['date', 'idle_time', 'idle_men', 'team', 'day', 'targeted_productivity'], axis=1, inplace=True)
 
-    # 5. One-Hot Encoding
+    # One-Hot Encoding
     garments = pd.get_dummies(garments, columns=['quarter', 'department'], drop_first=True)
 
-    # 6. Data Splitting
     X = garments.drop('actual_productivity', axis=1)
     y = garments['actual_productivity']
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 7. Scaling (Removed targeted_productivity from num_cols as per your image)
+    # UPDATED: Removed targeted_productivity from scaling list
     scaler = StandardScaler()
     num_cols =[
         'no_of_style_change', 'no_of_workers', 'smv', 'wip', 
@@ -58,115 +55,78 @@ def load_train_and_tune_models():
     X_train_scaled = X_train.copy()
     X_train_scaled[num_cols] = scaler.fit_transform(X_train[num_cols])
 
-    # 8. Train Tuned Ridge Regression
-    param_grid_lr = {'alpha':[0.01, 0.1, 1, 10, 100]}
-    grid_lr = GridSearchCV(Ridge(), param_grid_lr, cv=5, scoring='r2')
-    grid_lr.fit(X_train_scaled, y_train)
+    # Train Tuned Models
+    grid_lr = GridSearchCV(Ridge(), {'alpha':[0.01, 0.1, 1, 10, 100]}, cv=5).fit(X_train_scaled, y_train)
     best_lr = grid_lr.best_estimator_
 
-    # 9. Train Tuned SVR
-    param_grid_svr = {
-        'C':[1, 10, 50],
-        'gamma':['scale', 0.01, 0.1],
-        'epsilon':[0.01, 0.1]
-    }
-    grid_svr = GridSearchCV(SVR(kernel='rbf'), param_grid_svr, cv=5, scoring='r2', n_jobs=-1)
-    grid_svr.fit(X_train_scaled, y_train)
+    grid_svr = GridSearchCV(SVR(kernel='rbf'), {'C':[1, 10, 50], 'gamma':['scale', 0.01], 'epsilon':[0.01, 0.1]}, cv=5).fit(X_train_scaled, y_train)
     best_svr = grid_svr.best_estimator_
 
-    # 10. Train Tuned Random Forest
-    param_grid_rf = {
-        'n_estimators':[200, 300],
-        'max_depth': [10, 20, None],
-        'min_samples_split':[5, 10],
-        'min_samples_leaf':[1, 2],
-        'max_features': ['sqrt']
-    }
-    grid_rf = GridSearchCV(RandomForestRegressor(random_state=42), param_grid_rf, cv=5, scoring='r2', n_jobs=-1)
-    grid_rf.fit(X_train, y_train) 
+    grid_rf = GridSearchCV(RandomForestRegressor(random_state=42), {'n_estimators':[200, 300], 'max_depth':[10, 20]}, cv=5).fit(X_train, y_train) 
     best_rf = grid_rf.best_estimator_
 
     return best_lr, best_svr, best_rf, scaler, X_train.columns, num_cols
 
-# Load resources
-with st.spinner('Training tuned models and engineering features... Please wait.'):
+with st.spinner('Training models...'):
     best_lr, best_svr, best_rf, scaler, feature_columns, num_cols = load_train_and_tune_models()
-
 
 # ==========================================
 # 2. STREAMLIT USER INTERFACE
 # ==========================================
-
 st.title("🧵 Garment Productivity Predictor")
-st.markdown("Enter the operational and workforce metrics to predict actual team productivity.")
 
-# Sidebar for Model Selection
-st.sidebar.header("Settings")
-selected_model = st.sidebar.selectbox(
-    "Choose a Prediction Model",
-    ("Tuned Random Forest", "Tuned SVR", "Tuned Linear Regression (Ridge)")
-)
-
-# Layout for Inputs
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.subheader("Categorical Data")
+    st.subheader("Categorical & Targets")
     quarter = st.selectbox("Quarter",["Quarter1", "Quarter2", "Quarter3", "Quarter4", "Quarter5"])
     department = st.selectbox("Department",["sweing", "finishing"])
+    # KEEP THIS: captured for comparison, but not passed to model.predict
+    targeted_productivity = st.slider("Targeted Productivity (For Comparison)", min_value=0.10, max_value=1.00, value=0.80, step=0.01)
 
 with col2:
     st.subheader("Time & Workforce")
-    smv = st.number_input("Standard Minute Value (SMV)", min_value=0.0, value=20.0, step=0.5)
-    no_of_workers = st.number_input("Number of Workers", min_value=1, value=30, step=1)
-    over_time = st.number_input("Overtime (Minutes)", min_value=0, value=0, step=30)
+    smv = st.number_input("Standard Minute Value (SMV)", min_value=0.0, value=20.0)
+    no_of_workers = st.number_input("Number of Workers", min_value=1, value=30)
+    over_time = st.number_input("Overtime (Minutes)", min_value=0, value=0)
 
 with col3:
     st.subheader("Production Status")
-    wip = st.number_input("Work in Progress (WIP)", min_value=0, value=0, step=10)
-    incentive = st.number_input("Incentive (BDT)", min_value=0, value=0, step=10)
-    no_of_style_change = st.number_input("No. of Style Changes", min_value=0, value=0, step=1)
-
+    wip = st.number_input("Work in Progress (WIP)", min_value=0, value=0)
+    incentive = st.number_input("Incentive (BDT)", min_value=0, value=0)
+    no_of_style_change = st.number_input("No. of Style Changes", min_value=0, value=0)
 
 # ==========================================
 # 3. PREDICTION LOGIC
 # ==========================================
+selected_model = st.sidebar.selectbox("Model", ("Tuned Random Forest", "Tuned SVR", "Tuned LR"))
 
-if st.button(f"Predict with {selected_model}"):
-    
-    # 1. Create a DataFrame from User Inputs (Targeted Productivity removed)
+if st.button("Predict Productivity"):
+    # UPDATED: input_data does NOT include targeted_productivity
     input_data = pd.DataFrame({
         'quarter': [quarter],
         'department': [department],
         'smv': [smv],
         'wip': [wip],
         'over_time': [over_time],
-        'incentive':[incentive],
+        'incentive': [incentive],
         'no_of_workers': [no_of_workers],
         'no_of_style_change':[no_of_style_change]
     })
     
-    # 2. Apply Log Transformations
     input_data['wip'] = np.log1p(input_data['wip'])
     input_data['over_time'] = np.log1p(input_data['over_time'])
     input_data['incentive'] = np.log1p(input_data['incentive'])
-    
-    # 3. Apply Feature Engineering
     input_data['efficiency_ratio'] = input_data['smv'] / (input_data['no_of_workers'] + 1)
     input_data['overtime_per_worker'] = input_data['over_time'] / (input_data['no_of_workers'] + 1)
     input_data['wip_per_worker'] = input_data['wip'] / (input_data['no_of_workers'] + 1)
     
-    # 4. One-Hot Encoding
     input_data = pd.get_dummies(input_data, columns=['quarter', 'department'])
-    
-    # Align columns with the training dataset
     input_data = input_data.reindex(columns=feature_columns, fill_value=0)
     
-    # 5. Apply Scaling (For LR and SVR)
     input_data_scaled = input_data.copy()
     input_data_scaled[num_cols] = scaler.transform(input_data[num_cols])
 
-    # 6. Execute Prediction 
     if selected_model == "Tuned Random Forest":
         prediction = best_rf.predict(input_data)[0]
     elif selected_model == "Tuned SVR":
@@ -174,46 +134,13 @@ if st.button(f"Predict with {selected_model}"):
     else:
         prediction = best_lr.predict(input_data_scaled)[0]
 
-    # 7. Display Results
+    # 4. RESULTS & COMPARISON
     st.divider()
-    st.subheader(f"Results using {selected_model}")
-    st.metric(label="Predicted Actual Productivity", value=f"{prediction:.4f}")
+    st.metric(label="Predicted Productivity", value=f"{prediction:.4f}")
     
-    # Feedback based on standard 0.75 efficiency benchmark
-    if prediction >= 0.75:
-        st.success(f"High Performance: Prediction is {prediction:.2%} efficiency.")
+    # Logic comparing prediction to the UI slider value
+    diff = prediction - targeted_productivity
+    if prediction >= targeted_productivity:
+        st.success(f"🎯 Target Met! Predicted efficiency is {abs(diff):.2%} higher than your target.")
     else:
-        st.warning(f"Below Average Performance: Prediction is {prediction:.2%} efficiency.")
-
-    # ==========================================
-    # 8. DYNAMIC PRODUCTIVITY SUGGESTIONS
-    # ==========================================
-    st.markdown("---")
-    st.subheader("💡 Actionable Recommendations")
-    st.markdown("Based on your inputs, here are data-driven suggestions to improve this team's productivity:")
-
-    suggestions_given = False
-
-    if no_of_style_change > 0:
-        st.warning(f"**✂️ Style Change Management:** Scheduled style changes cause a learning curve dip. Ensure pre-allocated materials and thorough briefings are provided to keep momentum.")
-        suggestions_given = True
-
-    if incentive < 30:
-        st.info("**💰 Boost Incentives:** Lower financial incentives are often correlated with slower production speeds. Increasing the bonus pool can directly lift morale and output.")
-        suggestions_given = True
-
-    if over_time > (no_of_workers * 120): 
-        st.error("**⏰ Fatigue Risk:** Excessive overtime per worker leads to physical burnout. If productivity is low, consider reducing overtime and increasing the workforce size to maintain higher hourly efficiency.")
-        suggestions_given = True
-
-    raw_wip = np.expm1(input_data['wip'][0]) 
-    if raw_wip > 800:
-        st.warning("**🚧 WIP Reduction:** High work-in-progress levels indicate bottlenecks. Consider rebalancing the production line to ensure units move faster from sewing to finishing.")
-        suggestions_given = True
-
-    if smv > 25 and prediction < 0.80:
-        st.info("**⚙️ Task Simplification:** This garment style has high complexity (SMV). To improve score, consider breaking down complex operations into simpler steps for faster repetition.")
-        suggestions_given = True
-
-    if prediction >= 0.80 and not suggestions_given:
-        st.success("**✅ Optimal Setup:** Current parameters are excellent. To push higher, focus on workplace ergonomics and maintaining team synergy.")
+        st.error(f"⚠️ Target Missed. Predicted efficiency is {abs(diff):.2%} lower than your target.")
