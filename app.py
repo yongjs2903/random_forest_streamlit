@@ -23,8 +23,9 @@ def load_train_and_tune_models():
         st.error("Dataset not found. Please ensure 'garments_worker_productivity.csv' is in the directory.")
         st.stop()
 
-    # 1. Clean WIP
+    # 1. Clean WIP & String inconsistencies (fixes the double "finishing" issue)
     garments['wip'] = garments['wip'].fillna(0)
+    garments['department'] = garments['department'].str.strip()
 
     # 2. Log Transformations
     garments['wip'] = np.log1p(garments['wip'])
@@ -36,7 +37,7 @@ def load_train_and_tune_models():
     garments['overtime_per_worker'] = garments['over_time'] / (garments['no_of_workers'] + 1)
     garments['wip_per_worker'] = garments['wip'] / (garments['no_of_workers'] + 1)
 
-    # 4. Drop columns (Removed targeted_productivity and no_of_style_change from the drop list)
+    # 4. Drop columns
     garments.drop(['date', 'idle_time', 'idle_men', 'team', 'day'], axis=1, inplace=True)
 
     # 5. One-Hot Encoding
@@ -47,7 +48,7 @@ def load_train_and_tune_models():
     y = garments['actual_productivity']
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 7. Scaling (Added targeted_productivity and no_of_style_change back to numerical columns)
+    # 7. Scaling
     scaler = StandardScaler()
     num_cols =[
         'targeted_productivity', 'no_of_style_change', 'no_of_workers', 'smv', 'wip', 
@@ -67,7 +68,7 @@ def load_train_and_tune_models():
     param_grid_svr = {
         'C':[1, 10, 50],
         'gamma':['scale', 0.01, 0.1],
-        'epsilon': [0.01, 0.1]
+        'epsilon':[0.01, 0.1]
     }
     grid_svr = GridSearchCV(SVR(kernel='rbf'), param_grid_svr, cv=5, scoring='r2', n_jobs=-1)
     grid_svr.fit(X_train_scaled, y_train)
@@ -75,10 +76,10 @@ def load_train_and_tune_models():
 
     # 10. Train Tuned Random Forest (Trained on UNSCALED data)
     param_grid_rf = {
-        'n_estimators': [200, 300],
+        'n_estimators':[200, 300],
         'max_depth': [10, 20, None],
         'min_samples_split':[5, 10],
-        'min_samples_leaf': [1, 2],
+        'min_samples_leaf':[1, 2],
         'max_features': ['sqrt']
     }
     grid_rf = GridSearchCV(RandomForestRegressor(random_state=42), param_grid_rf, cv=5, scoring='r2', n_jobs=-1)
@@ -112,7 +113,8 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.subheader("Categorical & Targets")
     quarter = st.selectbox("Quarter",["Quarter1", "Quarter2", "Quarter3", "Quarter4", "Quarter5"])
-    department = st.selectbox("Department", ["sweing", "finishing", "finishing "])
+    # Cleaned department list without the trailing space
+    department = st.selectbox("Department",["sweing", "finishing"])
     targeted_productivity = st.slider("Targeted Productivity", min_value=0.10, max_value=1.00, value=0.80, step=0.01)
 
 with col2:
@@ -142,7 +144,7 @@ if st.button(f"Predict with {selected_model}"):
         'smv': [smv],
         'wip': [wip],
         'over_time': [over_time],
-        'incentive': [incentive],
+        'incentive':[incentive],
         'no_of_workers': [no_of_workers],
         'no_of_style_change':[no_of_style_change]
     })
