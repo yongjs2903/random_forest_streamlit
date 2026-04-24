@@ -113,7 +113,7 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.subheader("Categorical Data")
     quarter = st.selectbox("Quarter",["Quarter1", "Quarter2", "Quarter3", "Quarter4", "Quarter5"])
-    department = st.selectbox("Department", ["sweing", "finishing", "finishing "]) # Note trailing space in original data
+    department = st.selectbox("Department", ["sweing", "finishing"]) # Note trailing space in original data
 
 with col2:
     st.subheader("Time & Workforce")
